@@ -30,14 +30,20 @@ public class WorldGenerator : MonoBehaviour
     [SerializeField] private float powerUpHeight = 1.2f;
 
     [Header("Scenery")]
-    [SerializeField] private int pinesPerSide = 2;
-    [SerializeField] private float ruinChance = 0.7f;
-    [SerializeField] private float hillChance = 0.6f;
+    [SerializeField] private float cliffChance = 0.7f;
+    [SerializeField] private float plankChance = 0.3f;
+    [SerializeField] private bool gates = true;
     [SerializeField] private bool torches = true;
 
     [Header("Fire blower light")]
     [SerializeField] private bool fireLights = true;
     [SerializeField] private float fireLightIntensity = 3f;
+
+    // Size of one texture repeat, in world units
+    private const float PathUV = 6f;
+    private const float BlockUV = 2.5f;
+    private const float WoodUV = 6f;
+    private const float WaterUV = 4f;
 
     private readonly Queue<GameObject> segments = new Queue<GameObject>();
     private float nextSpawnZ;
@@ -46,45 +52,22 @@ public class WorldGenerator : MonoBehaviour
     // Materials are copied from the player's material, because that one is guaranteed
     // to be included (and to render correctly) in a phone build.
     private Material templateMaterial;
-    private readonly Dictionary<Vector4, Material> materialCache = new Dictionary<Vector4, Material>();
+    private readonly Dictionary<string, Material> materialCache = new Dictionary<string, Material>();
 
-    // Path and edges
-    private readonly Color groundColorA = new Color(0.22f, 0.22f, 0.24f);
-    private readonly Color groundColorB = new Color(0.18f, 0.18f, 0.20f);
-    private readonly Color laneLineColor = new Color(0.38f, 0.36f, 0.34f);
-    private readonly Color earthColor = new Color(0.07f, 0.10f, 0.08f);
-    private readonly Color edgeWallColor = new Color(0.34f, 0.31f, 0.28f);
-
-    // Stone (lighter than the path, so obstacles stand out)
-    private readonly Color[] stoneColors =
-    {
-        new Color(0.62f, 0.55f, 0.46f),
-        new Color(0.55f, 0.49f, 0.42f),
-        new Color(0.68f, 0.60f, 0.50f)
-    };
-    private readonly Color darkStoneColor = new Color(0.40f, 0.36f, 0.32f);
-    private readonly Color metalColor = new Color(0.10f, 0.10f, 0.11f);
-
-    // Water and fire (values above 1 make them extra bright in the dark)
-    private readonly Color waterColor = new Color(0.10f, 0.42f, 0.52f);
-    private readonly Color flameOuterColor = new Color(2.6f, 0.7f, 0.1f);
-    private readonly Color flameCoreColor = new Color(3f, 2f, 0.5f);
-
-    // Pickups
-    private readonly Color coinColor = new Color(1.8f, 1.35f, 0.25f);
-
-    // Forest and mountains
-    private readonly Color trunkColor = new Color(0.13f, 0.09f, 0.06f);
-    private readonly Color[] pineColors =
-    {
-        new Color(0.05f, 0.13f, 0.09f),
-        new Color(0.07f, 0.17f, 0.11f)
-    };
-    private readonly Color[] hillColors =
-    {
-        new Color(0.06f, 0.09f, 0.11f),
-        new Color(0.05f, 0.08f, 0.10f)
-    };
+    private Material pathStoneMaterial;
+    private Material pathPlankMaterial;
+    private Material wallMaterial;
+    private Material sandstoneMaterial;
+    private Material darkStoneMaterial;
+    private Material rockMaterial;
+    private Material cliffMaterial;
+    private Material waterMaterial;
+    private Material laneLineMaterial;
+    private Material metalMaterial;
+    private Material flameOuterMaterial;
+    private Material flameMidMaterial;
+    private Material flameCoreMaterial;
+    private Material coinMaterial;
 
     void Start()
     {
@@ -95,6 +78,16 @@ public class WorldGenerator : MonoBehaviour
             Renderer playerRenderer = player.GetComponent<Renderer>();
             if (playerRenderer != null) templateMaterial = playerRenderer.sharedMaterial;
         }
+
+        // Paint the textures and build the shapes now, so nothing hitches mid-run
+        TextureFactory.PreloadAll();
+        for (int i = 0; i < MeshFactory.RockVariants; i++)
+        {
+            MeshFactory.GetRock(i);
+        }
+        MeshFactory.GetFlame();
+
+        BuildMaterials();
     }
 
     void OnDestroy()
@@ -105,9 +98,37 @@ public class WorldGenerator : MonoBehaviour
         }
     }
 
+    private void BuildMaterials()
+    {
+        pathStoneMaterial = Textured(TextureFactory.Kind.StoneSlabs, new Color(0.62f, 0.62f, 0.68f), 0.12f, 1f);
+        pathPlankMaterial = Textured(TextureFactory.Kind.Planks, new Color(0.72f, 0.66f, 0.62f), 0.1f, 1f);
+        wallMaterial = Textured(TextureFactory.Kind.StoneBlocks, new Color(0.62f, 0.58f, 0.56f), 0.1f, 1f);
+        sandstoneMaterial = Textured(TextureFactory.Kind.StoneBlocks, new Color(1.0f, 0.93f, 0.82f), 0.1f, 1f);
+        darkStoneMaterial = Textured(TextureFactory.Kind.StoneBlocks, new Color(0.68f, 0.64f, 0.60f), 0.1f, 1f);
+        rockMaterial = Textured(TextureFactory.Kind.Rock, new Color(1f, 0.96f, 0.90f), 0.1f, 1f);
+        cliffMaterial = Textured(TextureFactory.Kind.Cliff, new Color(0.75f, 0.72f, 0.76f), 0.05f, 3f);
+        waterMaterial = Textured(TextureFactory.Kind.Water, Color.white, 0.95f, 1f);
+
+        laneLineMaterial = Flat(new Color(0.55f, 0.50f, 0.44f), 0.1f);
+        metalMaterial = Flat(new Color(0.10f, 0.10f, 0.11f), 0.4f);
+
+        // Values above 1 make the flames extra bright in the dark
+        flameOuterMaterial = Flat(new Color(2.4f, 0.55f, 0.08f), 0f);
+        flameMidMaterial = Flat(new Color(3f, 1.3f, 0.2f), 0f);
+        flameCoreMaterial = Flat(new Color(3f, 2.4f, 0.8f), 0f);
+
+        coinMaterial = Flat(new Color(1.8f, 1.35f, 0.25f), 0.6f);
+    }
+
     void Update()
     {
         if (player == null) return;
+
+        // Make the water ripple
+        if (waterMaterial != null)
+        {
+            waterMaterial.mainTextureOffset = new Vector2(Time.time * 0.03f, Time.time * 0.12f);
+        }
 
         // Build track ahead of the player
         while (nextSpawnZ < player.position.z + segmentsAhead * segmentLength)
@@ -130,18 +151,13 @@ public class WorldGenerator : MonoBehaviour
         segment.transform.position = new Vector3(0f, 0f, nextSpawnZ);
         Transform root = segment.transform;
 
-        // Path: two slabs per section, alternating shades so you can see the speed
-        float half = segmentLength / 2f;
-        for (int i = 0; i < 2; i++)
-        {
-            Color color = (i == 0) ? groundColorA : groundColorB;
-            CreatePiece(root, PrimitiveType.Cube,
-                new Vector3(0f, -0.5f, half * (i + 0.5f)),
-                new Vector3(trackWidth, 1f, half),
-                Quaternion.identity, color, 0.1f, true);
-        }
+        // Path: carved stone slabs, or sometimes a wooden plank bridge
+        bool plank = segmentCount >= safeSegments && Random.value < plankChance;
+        Box(root, new Vector3(trackWidth, 1f, segmentLength),
+            new Vector3(0f, -0.5f, segmentLength / 2f), Quaternion.identity,
+            plank ? pathPlankMaterial : pathStoneMaterial, plank ? WoodUV : PathUV, true);
 
-        // Earth, edge walls, lane lines, ruins, pines, hills and torches
+        // Walls, posts, torches, rock pillars and gates
         SpawnScenery(root);
 
         // Obstacles (skip the first few segments so the player can get going)
@@ -178,146 +194,119 @@ public class WorldGenerator : MonoBehaviour
     private void SpawnScenery(Transform parent)
     {
         float halfTrack = trackWidth / 2f;
-        float earthWidth = 70f;
 
         for (int side = -1; side <= 1; side += 2)
         {
-            // Dark earth beside the path (a little lower than the path)
-            CreatePiece(parent, PrimitiveType.Cube,
-                new Vector3(side * (halfTrack + earthWidth / 2f), -0.6f, segmentLength / 2f),
-                new Vector3(earthWidth, 1f, segmentLength),
-                Quaternion.identity, earthColor, 0.05f, false);
-
-            // Low stone wall along the path edge
-            CreatePiece(parent, PrimitiveType.Cube,
-                new Vector3(side * (halfTrack + 0.3f), 0.275f, segmentLength / 2f),
-                new Vector3(0.6f, 0.55f, segmentLength),
-                Quaternion.identity, edgeWallColor, 0.1f, false);
+            // Carved stone wall along the edge
+            Box(parent, new Vector3(0.6f, 0.6f, segmentLength),
+                new Vector3(side * (halfTrack + 0.3f), 0.3f, segmentLength / 2f),
+                Quaternion.identity, wallMaterial, BlockUV, false);
 
             // Worn lane line
-            CreatePiece(parent, PrimitiveType.Cube,
+            Box(parent, new Vector3(0.08f, 0.02f, segmentLength),
                 new Vector3(side * laneDistance / 2f, 0.011f, segmentLength / 2f),
-                new Vector3(0.08f, 0.02f, segmentLength),
-                Quaternion.identity, laneLineColor, 0.1f, false);
+                Quaternion.identity, laneLineMaterial, 1f, false);
 
-            // Broken column
-            if (Random.value < ruinChance) SpawnRuin(parent, side, halfTrack);
+            // Stone posts, with a torch on one of them (alternating sides)
+            bool torchSide = side == ((segmentCount % 2 == 0) ? -1 : 1);
+            SpawnPost(parent, side, segmentLength * 0.25f, false);
+            SpawnPost(parent, side, segmentLength * 0.75f, torches && torchSide);
 
-            // Tall dark pines
-            for (int i = 0; i < pinesPerSide; i++)
-            {
-                Vector3 basePosition = new Vector3(
-                    side * (halfTrack + Random.Range(6f, 22f)),
-                    -0.1f,
-                    Random.Range(1f, segmentLength - 1f));
-
-                SpawnPine(parent, basePosition, Random.Range(0.8f, 1.5f));
-            }
-
-            // Distant mountains that fade into the mist
-            if (Random.value < hillChance)
-            {
-                float diameter = Random.Range(45f, 90f);
-                float topHeight = Random.Range(14f, 40f);
-
-                CreatePiece(parent, PrimitiveType.Sphere,
-                    new Vector3(side * (halfTrack + Random.Range(50f, 95f)), topHeight - diameter / 2f, Random.Range(0f, segmentLength)),
-                    Vector3.one * diameter,
-                    Quaternion.identity, hillColors[Random.Range(0, hillColors.Length)], 0.05f, false);
-            }
+            // Rock pillars rising out of the mist
+            SpawnCliffs(parent, side, halfTrack);
         }
 
-        // One torch per section, alternating sides
-        if (torches) SpawnTorch(parent, (segmentCount % 2 == 0) ? -1 : 1, halfTrack);
+        // A giant stone archway every few sections
+        if (gates && segmentCount % 4 == 3) SpawnGate(parent, halfTrack);
     }
 
-    private void SpawnRuin(Transform parent, int side, float halfTrack)
+    private void SpawnPost(Transform parent, int side, float z, bool withTorch)
     {
-        float x = side * (halfTrack + Random.Range(1.8f, 5f));
-        float z = Random.Range(2f, segmentLength - 2f);
-        float height = Random.Range(1.5f, 5f);
-        Color stone = darkStoneColor;
+        float x = side * (trackWidth / 2f + 0.3f);
+        float height = Mathf.Round(Random.Range(1.4f, 2.4f) * 4f) / 4f;
 
-        // Square base, then the column (a cylinder is 2 units tall at scale 1)
-        CreatePiece(parent, PrimitiveType.Cube,
-            new Vector3(x, 0.15f, z), new Vector3(1.5f, 0.4f, 1.5f),
-            Quaternion.identity, darkStoneColor, 0.1f, false);
+        Box(parent, new Vector3(0.9f, height, 0.9f),
+            new Vector3(x, height / 2f, z),
+            Quaternion.identity, darkStoneMaterial, BlockUV, false);
 
-        CreatePiece(parent, PrimitiveType.Cylinder,
-            new Vector3(x, 0.3f + height / 2f, z), new Vector3(0.95f, height / 2f, 0.95f),
-            Quaternion.identity, stone, 0.1f, false);
+        Box(parent, new Vector3(1.1f, 0.2f, 1.1f),
+            new Vector3(x, height + 0.1f, z),
+            Yaw(8f), wallMaterial, BlockUV, false);
 
-        // Tall columns still have their top slab
-        if (height > 3.2f)
-        {
-            CreatePiece(parent, PrimitiveType.Cube,
-                new Vector3(x, 0.3f + height + 0.12f, z), new Vector3(1.4f, 0.25f, 1.4f),
-                Quaternion.Euler(0f, Random.Range(0f, 45f), 0f), darkStoneColor, 0.1f, false);
-        }
-
-        // Sometimes a fallen column lies beside it
-        if (Random.value < 0.35f)
-        {
-            CreatePiece(parent, PrimitiveType.Cylinder,
-                new Vector3(x + side * Random.Range(1.5f, 3f), 0.45f, z + Random.Range(-3f, 3f)),
-                new Vector3(0.9f, 1.3f, 0.9f),
-                Quaternion.Euler(0f, Random.Range(0f, 180f), 90f), stone, 0.1f, false);
-        }
+        if (withTorch) SpawnTorch(parent, new Vector3(x, height + 0.2f, z));
     }
 
-    private void SpawnPine(Transform parent, Vector3 basePosition, float size)
-    {
-        float height = Random.Range(7f, 12f) * size;
-        Color leaf = pineColors[Random.Range(0, pineColors.Length)];
-
-        // Thin trunk
-        CreatePiece(parent, PrimitiveType.Cylinder,
-            basePosition + new Vector3(0f, height / 2f, 0f),
-            new Vector3(0.5f * size, height / 2f, 0.5f * size),
-            Quaternion.identity, trunkColor, 0.05f, false);
-
-        // Two tall, narrow clumps of needles
-        CreatePiece(parent, PrimitiveType.Sphere,
-            basePosition + new Vector3(0f, height * 0.62f, 0f),
-            new Vector3(3.4f * size, height * 0.55f, 3.4f * size),
-            Quaternion.identity, leaf, 0.05f, false);
-
-        CreatePiece(parent, PrimitiveType.Sphere,
-            basePosition + new Vector3(0f, height * 0.88f, 0f),
-            new Vector3(2.2f * size, height * 0.35f, 2.2f * size),
-            Quaternion.identity, leaf, 0.05f, false);
-    }
-
-    private void SpawnTorch(Transform parent, int side, float halfTrack)
+    private void SpawnTorch(Transform parent, Vector3 position)
     {
         GameObject torch = new GameObject("Torch");
         torch.transform.SetParent(parent, false);
-        torch.transform.localPosition = new Vector3(side * (halfTrack + 1.3f), 0f, segmentLength * 0.5f);
+        torch.transform.localPosition = position;
         Transform t = torch.transform;
 
-        // Stone post and bowl
-        CreatePiece(t, PrimitiveType.Cylinder,
-            new Vector3(0f, 0.9f, 0f), new Vector3(0.35f, 0.9f, 0.35f),
-            Quaternion.identity, darkStoneColor, 0.1f, false);
-
-        CreatePiece(t, PrimitiveType.Cube,
-            new Vector3(0f, 1.85f, 0f), new Vector3(0.7f, 0.2f, 0.7f),
-            Quaternion.identity, darkStoneColor, 0.1f, false);
+        // Iron bowl
+        Box(t, new Vector3(0.6f, 0.18f, 0.6f), new Vector3(0f, 0.09f, 0f),
+            Quaternion.identity, metalMaterial, 1f, false);
 
         // Flame
         GameObject flame = new GameObject("Flames");
         flame.transform.SetParent(t, false);
-        flame.transform.localPosition = new Vector3(0f, 2.3f, 0f);
+        flame.transform.localPosition = new Vector3(0f, 0.18f, 0f);
 
-        CreatePiece(flame.transform, PrimitiveType.Sphere,
-            Vector3.zero, new Vector3(0.6f, 0.95f, 0.6f),
-            Quaternion.identity, flameOuterColor, 0f, false);
-
-        CreatePiece(flame.transform, PrimitiveType.Sphere,
-            new Vector3(0f, -0.05f, 0f), new Vector3(0.35f, 0.6f, 0.35f),
-            Quaternion.identity, flameCoreColor, 0f, false);
+        Mesh flameMesh = MeshFactory.GetFlame();
+        PlaceMesh(flame.transform, flameMesh, Vector3.zero, new Vector3(0.5f, 1.0f, 0.5f),
+            Quaternion.identity, flameOuterMaterial, false);
+        PlaceMesh(flame.transform, flameMesh, Vector3.zero, new Vector3(0.28f, 0.65f, 0.28f),
+            Quaternion.identity, flameCoreMaterial, false);
 
         flame.AddComponent<FlameFlicker>();
+    }
+
+    private void SpawnCliffs(Transform parent, int side, float halfTrack)
+    {
+        // Close rock pillars that disappear down into the mist
+        if (Random.value < 0.8f)
+        {
+            float width = Random.Range(4f, 8f);
+            float tall = Random.Range(40f, 70f);
+            float top = Random.Range(-2f, 12f);
+
+            PlaceMesh(parent, MeshFactory.GetRock(Random.Range(0, MeshFactory.RockVariants)),
+                new Vector3(side * (halfTrack + Random.Range(10f, 35f)), top - tall * 0.55f, Random.Range(0f, segmentLength)),
+                new Vector3(width, tall, width * Random.Range(0.8f, 1.3f)),
+                Quaternion.Euler(0f, Random.Range(0f, 360f), 0f), cliffMaterial, false);
+        }
+
+        // Far mountains
+        if (Random.value < cliffChance)
+        {
+            float width = Random.Range(14f, 26f);
+            float tall = Random.Range(60f, 100f);
+            float top = Random.Range(10f, 34f);
+
+            PlaceMesh(parent, MeshFactory.GetRock(Random.Range(0, MeshFactory.RockVariants)),
+                new Vector3(side * (halfTrack + Random.Range(40f, 80f)), top - tall * 0.55f, Random.Range(0f, segmentLength)),
+                new Vector3(width, tall, width * Random.Range(0.8f, 1.3f)),
+                Quaternion.Euler(0f, Random.Range(0f, 360f), 0f), cliffMaterial, false);
+        }
+    }
+
+    // Two huge pillars and a lintel. The camera passes safely underneath.
+    private void SpawnGate(Transform parent, float halfTrack)
+    {
+        float z = segmentLength * 0.5f;
+        float x = halfTrack + 1.4f;
+
+        for (int side = -1; side <= 1; side += 2)
+        {
+            Box(parent, new Vector3(1.8f, 10f, 1.8f), new Vector3(side * x, 5f, z),
+                Quaternion.identity, darkStoneMaterial, BlockUV, false);
+
+            Box(parent, new Vector3(2.3f, 0.5f, 2.3f), new Vector3(side * x, 10.25f, z),
+                Quaternion.identity, wallMaterial, BlockUV, false);
+        }
+
+        Box(parent, new Vector3(2f * x + 1.8f, 1.2f, 1.8f), new Vector3(0f, 9.2f, z),
+            Quaternion.identity, darkStoneMaterial, BlockUV, false);
     }
 
     // ---------- Obstacles ----------
@@ -368,18 +357,14 @@ public class WorldGenerator : MonoBehaviour
         Transform root = CreateObstacleRoot(parent, "Boulder", new Vector3(x, 0f, z),
             new Vector3(0f, 0.5f, 0f), new Vector3(1.7f, 1f, 1.4f));
 
-        CreatePiece(root, PrimitiveType.Sphere,
-            new Vector3(0f, 0.5f, 0f), new Vector3(1.7f, 1.15f, 1.4f),
-            Quaternion.Euler(0f, Random.Range(0f, 180f), 0f), RandomStone(), 0.1f, true);
+        PlaceMesh(root, RandomRock(), new Vector3(0f, 0.375f, 0f), new Vector3(1.8f, 1.25f, 1.5f),
+            Quaternion.Euler(0f, Random.Range(0f, 360f), 0f), rockMaterial, true);
 
-        CreatePiece(root, PrimitiveType.Cube,
-            new Vector3(0.55f, 0.28f, -0.45f), new Vector3(0.7f, 0.55f, 0.6f),
-            Quaternion.Euler(Random.Range(-15f, 15f), Random.Range(0f, 90f), Random.Range(-15f, 15f)),
-            RandomStone(), 0.1f, true);
+        PlaceMesh(root, RandomRock(), new Vector3(0.7f, 0.18f, -0.5f), new Vector3(0.8f, 0.6f, 0.7f),
+            Quaternion.Euler(0f, Random.Range(0f, 360f), 0f), rockMaterial, true);
 
-        CreatePiece(root, PrimitiveType.Sphere,
-            new Vector3(-0.6f, 0.22f, 0.4f), new Vector3(0.6f, 0.45f, 0.55f),
-            Quaternion.Euler(0f, Random.Range(0f, 180f), 0f), RandomStone(), 0.1f, true);
+        PlaceMesh(root, RandomRock(), new Vector3(-0.75f, 0.15f, 0.45f), new Vector3(0.6f, 0.5f, 0.6f),
+            Quaternion.Euler(0f, Random.Range(0f, 360f), 0f), rockMaterial, true);
     }
 
     // Water across the whole path: jump over it
@@ -390,21 +375,19 @@ public class WorldGenerator : MonoBehaviour
         Transform root = CreateObstacleRoot(parent, "WaterChannel", new Vector3(0f, 0f, z),
             new Vector3(0f, 0.1f, 0f), new Vector3(trackWidth, 0.6f, length + 0.4f));
 
-        // Glossy water surface
-        CreatePiece(root, PrimitiveType.Cube,
-            new Vector3(0f, 0.02f, 0f), new Vector3(trackWidth, 0.04f, length),
-            Quaternion.identity, waterColor, 0.95f, false);
+        // Rippling water surface
+        Box(root, new Vector3(trackWidth, 0.04f, length), new Vector3(0f, 0.02f, 0f),
+            Quaternion.identity, waterMaterial, WaterUV, false);
 
         // Stone lips at both ends
         for (int end = -1; end <= 1; end += 2)
         {
-            CreatePiece(root, PrimitiveType.Cube,
-                new Vector3(0f, 0.1f, end * length / 2f), new Vector3(trackWidth, 0.2f, 0.3f),
-                Quaternion.identity, darkStoneColor, 0.1f, true);
+            Box(root, new Vector3(trackWidth, 0.2f, 0.3f), new Vector3(0f, 0.1f, end * length / 2f),
+                Quaternion.identity, darkStoneMaterial, BlockUV, true);
         }
     }
 
-    // Flame band across the path at head height: slide under it
+    // Jets of flame across the path at head height: slide under them
     private void SpawnFireBlower(Transform parent, float z)
     {
         float bandY = 1.65f;
@@ -415,36 +398,36 @@ public class WorldGenerator : MonoBehaviour
 
         for (int side = -1; side <= 1; side += 2)
         {
-            // Stone post
-            CreatePiece(root, PrimitiveType.Cylinder,
-                new Vector3(side * postX, 1.4f, 0f), new Vector3(0.7f, 1.4f, 0.7f),
-                Quaternion.identity, darkStoneColor, 0.1f, true);
+            // Stone column with a cap
+            Column(root, 0.38f, 2.8f, new Vector3(side * postX, 0f, 0f), darkStoneMaterial, BlockUV, true);
 
-            CreatePiece(root, PrimitiveType.Cube,
-                new Vector3(side * postX, 2.85f, 0f), new Vector3(0.95f, 0.2f, 0.95f),
-                Quaternion.identity, RandomStone(), 0.1f, true);
+            Box(root, new Vector3(1f, 0.2f, 1f), new Vector3(side * postX, 2.9f, 0f),
+                Yaw(6f), sandstoneMaterial, BlockUV, true);
 
             // Iron nozzle pointing across the path
-            CreatePiece(root, PrimitiveType.Cube,
-                new Vector3(side * (postX - 0.5f), bandY, 0f), new Vector3(0.5f, 0.35f, 0.35f),
-                Quaternion.identity, metalColor, 0.3f, true);
+            Box(root, new Vector3(0.5f, 0.35f, 0.35f), new Vector3(side * (postX - 0.5f), bandY, 0f),
+                Quaternion.identity, metalMaterial, 1f, true);
         }
 
-        // The flames
+        // Two jets of flame that meet in the middle
         GameObject flames = new GameObject("Flames");
         flames.transform.SetParent(root, false);
         flames.transform.localPosition = new Vector3(0f, bandY, 0f);
 
-        float[] puffX = { -2.1f, -0.7f, 0.7f, 2.1f };
-        foreach (float x in puffX)
+        Mesh flameMesh = MeshFactory.GetFlame();
+        for (int side = -1; side <= 1; side += 2)
         {
-            CreatePiece(flames.transform, PrimitiveType.Sphere,
-                new Vector3(x, 0f, 0f), new Vector3(1.9f, 1.0f, 0.75f),
-                Quaternion.identity, flameOuterColor, 0f, false);
+            float nozzleX = side * (postX - 0.7f);
 
-            CreatePiece(flames.transform, PrimitiveType.Sphere,
-                new Vector3(x, 0f, 0f), new Vector3(1.3f, 0.6f, 0.5f),
-                Quaternion.identity, flameCoreColor, 0f, false);
+            // A flame is built pointing up, so tip it over to point across the path
+            Quaternion tilt = Quaternion.Euler(0f, 0f, side < 0 ? -90f : 90f);
+
+            PlaceMesh(flames.transform, flameMesh, new Vector3(nozzleX, 0f, 0f),
+                new Vector3(0.95f, 2.6f, 0.95f), tilt, flameOuterMaterial, false);
+            PlaceMesh(flames.transform, flameMesh, new Vector3(nozzleX, 0f, 0f),
+                new Vector3(0.65f, 2.2f, 0.65f), tilt, flameMidMaterial, false);
+            PlaceMesh(flames.transform, flameMesh, new Vector3(nozzleX, 0f, 0f),
+                new Vector3(0.35f, 1.7f, 0.35f), tilt, flameCoreMaterial, false);
         }
 
         flames.AddComponent<FlameFlicker>();
@@ -477,21 +460,17 @@ public class WorldGenerator : MonoBehaviour
             Transform root = CreateObstacleRoot(parent, "StonePillar", new Vector3(LaneX(lane), 0f, z),
                 new Vector3(0f, 1.4f, 0f), new Vector3(1.6f, 2.8f, 1.4f));
 
-            CreatePiece(root, PrimitiveType.Cube,
-                new Vector3(0f, 0.55f, 0f), new Vector3(1.6f, 1.1f, 1.4f),
-                Yaw(4f), darkStoneColor, 0.1f, true);
+            Box(root, new Vector3(1.6f, 1.1f, 1.4f), new Vector3(0f, 0.55f, 0f),
+                Yaw(4f), darkStoneMaterial, BlockUV, true);
 
-            CreatePiece(root, PrimitiveType.Cube,
-                new Vector3(0f, 1.5f, 0f), new Vector3(1.45f, 0.95f, 1.3f),
-                Yaw(4f), RandomStone(), 0.1f, true);
+            Box(root, new Vector3(1.45f, 0.95f, 1.3f), new Vector3(0f, 1.5f, 0f),
+                Yaw(4f), sandstoneMaterial, BlockUV, true);
 
-            CreatePiece(root, PrimitiveType.Cube,
-                new Vector3(0f, 2.35f, 0f), new Vector3(1.3f, 0.9f, 1.2f),
-                Yaw(4f), RandomStone(), 0.1f, true);
+            Box(root, new Vector3(1.3f, 0.9f, 1.2f), new Vector3(0f, 2.35f, 0f),
+                Yaw(4f), sandstoneMaterial, BlockUV, true);
 
-            CreatePiece(root, PrimitiveType.Cube,
-                new Vector3(0f, 2.9f, 0f), new Vector3(1.7f, 0.2f, 1.5f),
-                Yaw(3f), darkStoneColor, 0.1f, true);
+            Box(root, new Vector3(1.7f, 0.2f, 1.5f), new Vector3(0f, 2.9f, 0f),
+                Yaw(3f), darkStoneMaterial, BlockUV, true);
         }
     }
 
@@ -503,11 +482,20 @@ public class WorldGenerator : MonoBehaviour
 
         for (int lane = 0; lane < 3; lane++)
         {
-            float height = Random.Range(0.65f, 1f);
+            float height = Mathf.Round(Random.Range(0.65f, 1f) * 10f) / 10f;
 
-            CreatePiece(root, PrimitiveType.Cube,
-                new Vector3(LaneX(lane), height / 2f, 0f), new Vector3(laneDistance - 0.05f, height, 0.9f),
-                Yaw(2f), RandomStone(), 0.1f, true);
+            Box(root, new Vector3(laneDistance - 0.05f, height, 0.9f),
+                new Vector3(LaneX(lane), height / 2f, 0f),
+                Yaw(2f), sandstoneMaterial, BlockUV, true);
+
+            // Fallen rubble on some of the blocks
+            if (Random.value < 0.6f)
+            {
+                PlaceMesh(root, RandomRock(),
+                    new Vector3(LaneX(lane) + Random.Range(-0.5f, 0.5f), height + 0.08f, Random.Range(-0.2f, 0.2f)),
+                    new Vector3(0.55f, 0.35f, 0.45f),
+                    Quaternion.Euler(0f, Random.Range(0f, 360f), 0f), rockMaterial, true);
+            }
         }
     }
 
@@ -537,9 +525,8 @@ public class WorldGenerator : MonoBehaviour
         coin.AddComponent<Coin>();
 
         // Flat gold disc, turned so it spins like a real coin
-        CreatePiece(coin.transform, PrimitiveType.Cylinder,
-            Vector3.zero, new Vector3(0.7f, 0.06f, 0.7f),
-            Quaternion.Euler(0f, 0f, 90f), coinColor, 0.6f, true);
+        Primitive(coin.transform, PrimitiveType.Cylinder, Vector3.zero, new Vector3(0.7f, 0.06f, 0.7f),
+            Quaternion.Euler(0f, 0f, 90f), coinMaterial, true);
     }
 
     private void SpawnPowerUp(Transform parent)
@@ -581,7 +568,7 @@ public class WorldGenerator : MonoBehaviour
         PowerUp powerUp = root.AddComponent<PowerUp>();
         powerUp.Type = type;
 
-        CreatePiece(root.transform, shape, Vector3.zero, scale, Quaternion.identity, color, 0.5f, true);
+        Primitive(root.transform, shape, Vector3.zero, scale, Quaternion.identity, Flat(color, 0.5f), true);
     }
 
     // ---------- Helpers ----------
@@ -591,9 +578,9 @@ public class WorldGenerator : MonoBehaviour
         return (lane - 1) * laneDistance;
     }
 
-    private Color RandomStone()
+    private static Mesh RandomRock()
     {
-        return stoneColors[Random.Range(0, stoneColors.Length)];
+        return MeshFactory.GetRock(Random.Range(0, MeshFactory.RockVariants));
     }
 
     private static Quaternion Yaw(float range)
@@ -601,21 +588,61 @@ public class WorldGenerator : MonoBehaviour
         return Quaternion.Euler(0f, Random.Range(-range, range), 0f);
     }
 
-    // Builds one visible piece. "detailed" pieces cast and receive shadows;
-    // scenery skips shadows to keep phones running smoothly. Pieces never have colliders.
-    private GameObject CreatePiece(Transform parent, PrimitiveType type, Vector3 localPosition, Vector3 scale,
-        Quaternion rotation, Color color, float smoothness, bool detailed)
+    // A box whose texture keeps the same size however big the box is
+    private GameObject Box(Transform parent, Vector3 size, Vector3 localPosition, Quaternion rotation,
+        Material material, float uvUnit, bool detailed)
+    {
+        return PlaceMesh(parent, MeshFactory.GetBox(size, uvUnit), localPosition, Vector3.one, rotation, material, detailed);
+    }
+
+    // A round column that stands on the given base position
+    private GameObject Column(Transform parent, float radius, float height, Vector3 basePosition,
+        Material material, float uvUnit, bool detailed)
+    {
+        return PlaceMesh(parent, MeshFactory.GetColumn(radius, height, uvUnit), basePosition, Vector3.one,
+            Quaternion.identity, material, detailed);
+    }
+
+    // "detailed" pieces cast and receive shadows. Scenery skips shadows to keep phones
+    // running smoothly. Pieces never have colliders.
+    private GameObject PlaceMesh(Transform parent, Mesh mesh, Vector3 localPosition, Vector3 scale,
+        Quaternion rotation, Material material, bool detailed)
+    {
+        GameObject piece = new GameObject("Piece");
+        piece.transform.SetParent(parent, false);
+        piece.transform.localPosition = localPosition;
+        piece.transform.localRotation = rotation;
+        piece.transform.localScale = scale;
+
+        piece.AddComponent<MeshFilter>().sharedMesh = mesh;
+
+        MeshRenderer pieceRenderer = piece.AddComponent<MeshRenderer>();
+        pieceRenderer.sharedMaterial = material;
+
+        if (!detailed)
+        {
+            pieceRenderer.shadowCastingMode = ShadowCastingMode.Off;
+            pieceRenderer.receiveShadows = false;
+        }
+
+        return piece;
+    }
+
+    // A built-in shape (sphere, capsule, cylinder) without its collider
+    private GameObject Primitive(Transform parent, PrimitiveType type, Vector3 localPosition, Vector3 scale,
+        Quaternion rotation, Material material, bool detailed)
     {
         GameObject piece = GameObject.CreatePrimitive(type);
         piece.transform.SetParent(parent, false);
         piece.transform.localPosition = localPosition;
         piece.transform.localRotation = rotation;
         piece.transform.localScale = scale;
-        Paint(piece, color, smoothness);
+
+        Renderer pieceRenderer = piece.GetComponent<Renderer>();
+        pieceRenderer.sharedMaterial = material;
 
         if (!detailed)
         {
-            Renderer pieceRenderer = piece.GetComponent<Renderer>();
             pieceRenderer.shadowCastingMode = ShadowCastingMode.Off;
             pieceRenderer.receiveShadows = false;
         }
@@ -624,9 +651,9 @@ public class WorldGenerator : MonoBehaviour
         return piece;
     }
 
-    private Material GetMaterial(Color color, float smoothness)
+    private Material Flat(Color color, float smoothness)
     {
-        Vector4 key = new Vector4(color.r, color.g, color.b, smoothness);
+        string key = string.Format("flat|{0:F2}|{1:F2}|{2:F2}|{3:F2}", color.r, color.g, color.b, smoothness);
 
         Material material;
         if (materialCache.TryGetValue(key, out material)) return material;
@@ -642,17 +669,29 @@ public class WorldGenerator : MonoBehaviour
         return material;
     }
 
+    private Material Textured(TextureFactory.Kind kind, Color tint, float smoothness, float tiling)
+    {
+        string key = string.Format("tex|{0}|{1:F2}|{2:F2}|{3:F2}|{4:F2}|{5:F2}",
+            kind, tint.r, tint.g, tint.b, smoothness, tiling);
+
+        Material material;
+        if (materialCache.TryGetValue(key, out material)) return material;
+
+        if (templateMaterial == null) return null;
+
+        material = new Material(templateMaterial);
+        material.color = tint;
+        material.mainTexture = TextureFactory.Get(kind);
+        material.mainTextureScale = new Vector2(tiling, tiling);
+        SetFloatIfPresent(material, "_Smoothness", smoothness);
+        SetFloatIfPresent(material, "_Metallic", 0f);
+
+        materialCache[key] = material;
+        return material;
+    }
+
     private static void SetFloatIfPresent(Material material, string property, float value)
     {
         if (material.HasProperty(property)) material.SetFloat(property, value);
-    }
-
-    private void Paint(GameObject target, Color color, float smoothness)
-    {
-        Renderer targetRenderer = target.GetComponent<Renderer>();
-        Material material = GetMaterial(color, smoothness);
-
-        if (material != null) targetRenderer.sharedMaterial = material;
-        else targetRenderer.material.color = color;
     }
 }
