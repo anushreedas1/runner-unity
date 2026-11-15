@@ -35,7 +35,8 @@ public class WorldGenerator : MonoBehaviour
     [SerializeField] private bool gates = true;
     [SerializeField] private bool torches = true;
 
-    [Header("Fire blower light")]
+    [Header("Fire")]
+    [SerializeField] private Material fireParticleMaterial;
     [SerializeField] private bool fireLights = true;
     [SerializeField] private float fireLightIntensity = 3f;
 
@@ -69,6 +70,9 @@ public class WorldGenerator : MonoBehaviour
     private Material flameCoreMaterial;
     private Material coinMaterial;
 
+    // Particle fire (null until the FireParticles material is assigned)
+    private Material fireMaterial;
+
     void Start()
     {
         nextSpawnZ = -segmentLength;
@@ -81,11 +85,24 @@ public class WorldGenerator : MonoBehaviour
 
         // Paint the textures and build the shapes now, so nothing hitches mid-run
         TextureFactory.PreloadAll();
+
         for (int i = 0; i < MeshFactory.RockVariants; i++)
         {
             MeshFactory.GetRock(i);
         }
+
+        for (int i = 0; i < CliffFactory.Variants; i++)
+        {
+            CliffFactory.Get(i);
+        }
+
         MeshFactory.GetFlame();
+
+        if (fireParticleMaterial != null)
+        {
+            fireMaterial = new Material(fireParticleMaterial);
+            fireMaterial.mainTexture = FireEffect.GetTexture();
+        }
 
         BuildMaterials();
     }
@@ -96,6 +113,8 @@ public class WorldGenerator : MonoBehaviour
         {
             if (material != null) Destroy(material);
         }
+
+        if (fireMaterial != null) Destroy(fireMaterial);
     }
 
     private void BuildMaterials()
@@ -106,13 +125,13 @@ public class WorldGenerator : MonoBehaviour
         sandstoneMaterial = Textured(TextureFactory.Kind.StoneBlocks, new Color(1.0f, 0.93f, 0.82f), 0.1f, 1f);
         darkStoneMaterial = Textured(TextureFactory.Kind.StoneBlocks, new Color(0.68f, 0.64f, 0.60f), 0.1f, 1f);
         rockMaterial = Textured(TextureFactory.Kind.Rock, new Color(1f, 0.96f, 0.90f), 0.1f, 1f);
-        cliffMaterial = Textured(TextureFactory.Kind.Cliff, new Color(0.75f, 0.72f, 0.76f), 0.05f, 3f);
+        cliffMaterial = Textured(TextureFactory.Kind.Cliff, new Color(0.45f, 0.40f, 0.40f), 0.05f, 3f);
         waterMaterial = Textured(TextureFactory.Kind.Water, Color.white, 0.95f, 1f);
 
         laneLineMaterial = Flat(new Color(0.55f, 0.50f, 0.44f), 0.1f);
         metalMaterial = Flat(new Color(0.10f, 0.10f, 0.11f), 0.4f);
 
-        // Values above 1 make the flames extra bright in the dark
+        // Values above 1 make the flames extra bright in the dark (used if there is no particle fire)
         flameOuterMaterial = Flat(new Color(2.4f, 0.55f, 0.08f), 0f);
         flameMidMaterial = Flat(new Color(3f, 1.3f, 0.2f), 0f);
         flameCoreMaterial = Flat(new Color(3f, 2.4f, 0.8f), 0f);
@@ -247,7 +266,15 @@ public class WorldGenerator : MonoBehaviour
         Box(t, new Vector3(0.6f, 0.18f, 0.6f), new Vector3(0f, 0.09f, 0f),
             Quaternion.identity, metalMaterial, 1f, false);
 
-        // Flame
+        if (fireMaterial != null)
+        {
+            // Real particle fire, shooting up
+            FireEffect.Create(t, new Vector3(0f, 0.18f, 0f), Quaternion.Euler(-90f, 0f, 0f), fireMaterial,
+                1.2f, 0.7f, 0.6f, 28f, 8f, 0.12f);
+            return;
+        }
+
+        // No particle material yet: use the flame shapes
         GameObject flame = new GameObject("Flames");
         flame.transform.SetParent(t, false);
         flame.transform.localPosition = new Vector3(0f, 0.18f, 0f);
@@ -270,7 +297,7 @@ public class WorldGenerator : MonoBehaviour
             float tall = Random.Range(40f, 70f);
             float top = Random.Range(-2f, 12f);
 
-            PlaceMesh(parent, MeshFactory.GetRock(Random.Range(0, MeshFactory.RockVariants)),
+            PlaceMesh(parent, CliffFactory.Get(Random.Range(0, CliffFactory.Variants)),
                 new Vector3(side * (halfTrack + Random.Range(10f, 35f)), top - tall * 0.55f, Random.Range(0f, segmentLength)),
                 new Vector3(width, tall, width * Random.Range(0.8f, 1.3f)),
                 Quaternion.Euler(0f, Random.Range(0f, 360f), 0f), cliffMaterial, false);
@@ -283,7 +310,7 @@ public class WorldGenerator : MonoBehaviour
             float tall = Random.Range(60f, 100f);
             float top = Random.Range(10f, 34f);
 
-            PlaceMesh(parent, MeshFactory.GetRock(Random.Range(0, MeshFactory.RockVariants)),
+            PlaceMesh(parent, CliffFactory.Get(Random.Range(0, CliffFactory.Variants)),
                 new Vector3(side * (halfTrack + Random.Range(40f, 80f)), top - tall * 0.55f, Random.Range(0f, segmentLength)),
                 new Vector3(width, tall, width * Random.Range(0.8f, 1.3f)),
                 Quaternion.Euler(0f, Random.Range(0f, 360f), 0f), cliffMaterial, false);
@@ -409,28 +436,48 @@ public class WorldGenerator : MonoBehaviour
                 Quaternion.identity, metalMaterial, 1f, true);
         }
 
-        // Two jets of flame that meet in the middle
-        GameObject flames = new GameObject("Flames");
-        flames.transform.SetParent(root, false);
-        flames.transform.localPosition = new Vector3(0f, bandY, 0f);
-
-        Mesh flameMesh = MeshFactory.GetFlame();
-        for (int side = -1; side <= 1; side += 2)
+        if (fireMaterial != null)
         {
-            float nozzleX = side * (postX - 0.7f);
+            // Two jets of real fire that meet in the middle
+            for (int side = -1; side <= 1; side += 2)
+            {
+                float nozzleX = side * (postX - 0.7f);
+                Quaternion aim = Quaternion.Euler(0f, side < 0 ? 90f : -90f, 0f);
 
-            // A flame is built pointing up, so tip it over to point across the path
-            Quaternion tilt = Quaternion.Euler(0f, 0f, side < 0 ? -90f : 90f);
+                FireEffect.Create(root, new Vector3(nozzleX, bandY, 0f), aim, fireMaterial,
+                    3.2f, 0.85f, 1.0f, 45f, 5f, 0.18f);
+            }
 
-            PlaceMesh(flames.transform, flameMesh, new Vector3(nozzleX, 0f, 0f),
-                new Vector3(0.95f, 2.6f, 0.95f), tilt, flameOuterMaterial, false);
-            PlaceMesh(flames.transform, flameMesh, new Vector3(nozzleX, 0f, 0f),
-                new Vector3(0.65f, 2.2f, 0.65f), tilt, flameMidMaterial, false);
-            PlaceMesh(flames.transform, flameMesh, new Vector3(nozzleX, 0f, 0f),
-                new Vector3(0.35f, 1.7f, 0.35f), tilt, flameCoreMaterial, false);
+            // Makes the glow flicker
+            GameObject flicker = new GameObject("LightFlicker");
+            flicker.transform.SetParent(root, false);
+            flicker.AddComponent<FlameFlicker>();
         }
+        else
+        {
+            // No particle material yet: use the flame shapes
+            GameObject flames = new GameObject("Flames");
+            flames.transform.SetParent(root, false);
+            flames.transform.localPosition = new Vector3(0f, bandY, 0f);
 
-        flames.AddComponent<FlameFlicker>();
+            Mesh flameMesh = MeshFactory.GetFlame();
+            for (int side = -1; side <= 1; side += 2)
+            {
+                float nozzleX = side * (postX - 0.7f);
+
+                // A flame is built pointing up, so tip it over to point across the path
+                Quaternion tilt = Quaternion.Euler(0f, 0f, side < 0 ? -90f : 90f);
+
+                PlaceMesh(flames.transform, flameMesh, new Vector3(nozzleX, 0f, 0f),
+                    new Vector3(0.95f, 2.6f, 0.95f), tilt, flameOuterMaterial, false);
+                PlaceMesh(flames.transform, flameMesh, new Vector3(nozzleX, 0f, 0f),
+                    new Vector3(0.65f, 2.2f, 0.65f), tilt, flameMidMaterial, false);
+                PlaceMesh(flames.transform, flameMesh, new Vector3(nozzleX, 0f, 0f),
+                    new Vector3(0.35f, 1.7f, 0.35f), tilt, flameCoreMaterial, false);
+            }
+
+            flames.AddComponent<FlameFlicker>();
+        }
 
         // Orange glow on the stones around it
         if (fireLights)

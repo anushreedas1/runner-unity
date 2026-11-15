@@ -10,9 +10,10 @@ using UnityEngine.SceneManagement;
 public class EnvironmentManager : MonoBehaviour
 {
     private static EnvironmentManager instance;
+    private static Material skyInstance;
 
     // Dusk (used with the "DuskSky" skybox)
-    private static readonly Color duskMist = new Color(0.36f, 0.33f, 0.33f);
+    private static readonly Color duskMistFallback = new Color(0.36f, 0.33f, 0.33f);
     private static readonly Color duskSun = new Color(1.00f, 0.68f, 0.42f);
     private static readonly Color duskAmbientSky = new Color(0.62f, 0.66f, 0.78f);
     private static readonly Color duskAmbientEquator = new Color(0.45f, 0.40f, 0.40f);
@@ -70,7 +71,14 @@ public class EnvironmentManager : MonoBehaviour
         Material sky = RenderSettings.skybox;
         bool dusk = sky != null && sky.name == "DuskSky";
 
-        Color fogColor = dusk ? duskMist : nightColor;
+        // With the Panoramic shader, the sky is painted by code. With the Procedural shader,
+        // the skybox is left as it is.
+        bool paintedSky = dusk && PrepareSky(sky);
+
+        Color fogColor;
+        if (paintedSky) fogColor = SkyFactory.MistColor;
+        else if (dusk) fogColor = duskMistFallback;
+        else fogColor = nightColor;
 
         // Mist hides the far end of the path, where new sections appear
         RenderSettings.fog = true;
@@ -104,7 +112,7 @@ public class EnvironmentManager : MonoBehaviour
         {
             if (dusk)
             {
-                // Low sun ahead and to the left: warm glow on the horizon and long shadows
+                // Low sun ahead and to the left: warm glow and long shadows
                 sun.transform.rotation = Quaternion.Euler(12f, 125f, 0f);
                 sun.color = duskSun;
                 sun.intensity = DuskSunIntensity;
@@ -116,6 +124,23 @@ public class EnvironmentManager : MonoBehaviour
                 sun.intensity = MoonIntensity;
             }
         }
+    }
+
+    // Puts the painted sunset on the sky material. Returns false if the material
+    // does not use the Panoramic shader.
+    private static bool PrepareSky(Material sky)
+    {
+        if (!sky.HasProperty("_MainTex")) return false;
+
+        if (skyInstance == null)
+        {
+            skyInstance = new Material(sky);
+            skyInstance.name = "DuskSky";
+            skyInstance.SetTexture("_MainTex", SkyFactory.Get());
+        }
+
+        RenderSettings.skybox = skyInstance;
+        return true;
     }
 
     private static Light FindSun()

@@ -1,4 +1,3 @@
-
 # Unity generated folders
 [Ll]ibrary/
 [Tt]emp/
@@ -7,6 +6,10 @@
 [Bb]uilds/
 [Ll]ogs/
 [Uu]ser[Ss]ettings/
+[Mm]emoryCaptures/
+
+# Temporary Unity files
+.utmp/
 
 # IDE generated files
 .vs/
@@ -15,13 +18,22 @@
 *.csproj
 *.sln
 *.slnx
+*.suo
 *.user
 *.userprefs
+*.pidb
+*.booproj
+
+# Android builds and signing keys (never commit keystores)
+*.apk
+*.aab
+*.keystore
+*.jks
 
 # Operating system files
 .DS_Store
 Thumbs.db
 
-
-# Temporary Unity files
-.utmp/
+# Mixamo characters and animations (Adobe doesn't allow sharing the raw files)
+/Assets/Characters/
+/Assets/Characters.meta

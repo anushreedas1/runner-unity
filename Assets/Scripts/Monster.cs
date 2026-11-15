@@ -4,6 +4,10 @@ public class Monster : MonoBehaviour
 {
     [SerializeField] private Transform player;
 
+    [Header("Character model (optional)")]
+    [SerializeField] private CharacterAnimator model;
+    [SerializeField] private float modelHeight = 1.2f;
+
     [Header("Chase distances (behind the player)")]
     [SerializeField] private float farDistance = 4.5f;
     [SerializeField] private float closeDistance = 2.2f;
@@ -15,12 +19,22 @@ public class Monster : MonoBehaviour
 
     private float currentDistance;
     private Material templateMaterial;
+    private bool modelIdle;
 
     void Start()
     {
         currentDistance = farDistance;
 
-        // Copy the player's material, because that one works in a phone build
+        if (model != null)
+        {
+            // Feet on the ground, facing forward
+            model.transform.localPosition = new Vector3(0f, -modelHeight, 0f);
+            model.transform.localRotation = Quaternion.identity;
+            model.Play(CharacterAnimator.State.Run);
+            return;
+        }
+
+        // No model: copy the player's material, because that one works in a phone build
         if (player != null)
         {
             Renderer playerRenderer = player.GetComponent<Renderer>();
@@ -45,11 +59,31 @@ public class Monster : MonoBehaviour
 
         currentDistance = Mathf.MoveTowards(currentDistance, targetDistance, approachSpeed * Time.deltaTime);
 
+        // A little running bob for the simple shape (a model already bobs by itself)
+        float bob = model == null ? Mathf.Sin(Time.time * 12f) * 0.1f : 0f;
+
         Vector3 pos = transform.position;
         pos.z = player.position.z - currentDistance;
         pos.x = Mathf.Lerp(pos.x, player.position.x, sideFollowSpeed * Time.deltaTime);
-        pos.y = 1.2f + Mathf.Sin(Time.time * 12f) * 0.1f; // little running bob
+        pos.y = modelHeight + bob;
         transform.position = pos;
+
+        AnimateModel(gm);
+    }
+
+    private void AnimateModel(GameManager gm)
+    {
+        if (model == null || gm == null) return;
+
+        bool shouldIdle = gm.IsGameOver || !gm.IsPlaying;
+
+        if (shouldIdle != modelIdle)
+        {
+            model.Play(shouldIdle ? CharacterAnimator.State.Idle : CharacterAnimator.State.Run);
+            modelIdle = shouldIdle;
+        }
+
+        model.SetRunSpeed(Mathf.Clamp(gm.CurrentSpeed / 9f, 0.8f, 1.8f));
     }
 
     private void BuildVisual()
