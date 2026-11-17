@@ -148,6 +148,25 @@ MonoBehaviour:
   stumbleClip: {fileID: -203655887218126122, guid: 70de74ad39d3c0f46927abdaed696805, type: 3}
   deathClip: {fileID: -203655887218126122, guid: 121c0f501ece62b47ba3145034fbb1d4, type: 3}
   blendTime: 0.12
+--- !u!114 &155692363
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 155692360}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 18ae2b494fa139249894848528205690, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::CharacterAnimator
+  idleClip: {fileID: -203655887218126122, guid: 37e590f95a88f8c40abd079727886e83, type: 3}
+  runClip: {fileID: -203655887218126122, guid: 56dcaaff8882ea24d91d1aca71015bc2, type: 3}
+  jumpClip: {fileID: -203655887218126122, guid: ff8e64596fed9c045b72485c4006cb71, type: 3}
+  slideClip: {fileID: -203655887218126122, guid: 4e32b99ef100e1046a431d2d464c1219, type: 3}
+  stumbleClip: {fileID: -203655887218126122, guid: 70de74ad39d3c0f46927abdaed696805, type: 3}
+  deathClip: {fileID: -203655887218126122, guid: 121c0f501ece62b47ba3145034fbb1d4, type: 3}
+  blendTime: 0.12
 --- !u!1 &202419312
 GameObject:
   m_ObjectHideFlags: 0
@@ -866,6 +885,9 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: 5a2fed7ca978ee9418b3742eca932061, type: 3}
       insertIndex: -1
       addedObject: {fileID: 155692362}
+    - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: 5a2fed7ca978ee9418b3742eca932061, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 155692363}
   m_SourcePrefab: {fileID: 100100000, guid: 5a2fed7ca978ee9418b3742eca932061, type: 3}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
