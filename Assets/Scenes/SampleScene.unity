@@ -617,10 +617,10 @@ MonoBehaviour:
   powerUpHeight: 1.2
   cliffChance: 0.7
   plankChance: 0.3
-  gates: 1
-  torches: 1
+  gates: 0
+  torches: 0
   fireParticleMaterial: {fileID: 2100000, guid: 0b8fc8f37fda2b342a7cde00fb2a4de1, type: 2}
-  fireLights: 1
+  fireLights: 0
   fireLightIntensity: 3
 --- !u!4 &448715121
 Transform:
@@ -859,9 +859,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::GameManager
   player: {fileID: 202419316}
   gameTitle: ENDLESS RUNNER
-  startSpeed: 10
-  maxSpeed: 22
-  speedIncreasePerSecond: 0.08
+  startSpeed: 11
+  maxSpeed: 24
+  speedIncreasePerSecond: 0.1
   stumbledSpeedFactor: 0.85
   invulnerableTime: 1.5
   recoveryTime: 8
